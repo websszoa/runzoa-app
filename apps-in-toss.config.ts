@@ -1,10 +1,10 @@
-import { defineConfig } from '@apps-in-toss/web-framework/config';
+import { defineConfig } from "@apps-in-toss/web-framework/config";
 
 export default defineConfig({
-  appName: 'runzoa-app',
+  appName: "runzoa",
   brand: {
-    primaryColor: '#F1170F',
+    primaryColor: "#F1170F",
   },
   permissions: [],
-  webBundleDir: 'dist',
+  webBundleDir: "dist",
 });

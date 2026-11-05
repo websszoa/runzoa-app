@@ -1,18 +1,13 @@
 import { MapPin } from "lucide-react";
-import type { Race, RaceStatus } from "../data/races";
+import type { Race, RaceStatus } from "../lib/utils";
 
 type ListStyleProps = {
   race: Race;
   status: RaceStatus;
-  variant?: "home" | "list";
+  onClick?: () => void;
 };
 
-export default function ListStyle({
-  race,
-  status,
-  variant = "list",
-}: ListStyleProps) {
-  const isHome = variant === "home";
+export default function ListStyle({ race, status, onClick }: ListStyleProps) {
   const statusStyle = {
     open: {
       label: "접수중",
@@ -42,26 +37,30 @@ export default function ListStyle({
 
   return (
     <article
-      className={`flex min-w-0 items-center gap-4 bg-white ${isHome ? "min-h-20 px-4 py-3.5" : "px-4 py-4"}`}
+      className={`flex min-w-0 items-center gap-4 bg-white px-4 py-4 ${onClick ? "cursor-pointer transition-colors hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-blue-500" : ""}`}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (!onClick || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onClick();
+      }}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
     >
-      <div
-        className={`${isHome ? "w-18.5 pr-4" : "w-15.5 pr-3"} shrink-0 border-r border-gray-100 text-center`}
-      >
+      <div className="w-15.5 shrink-0 border-r border-gray-100 pr-3 text-center">
         <p
-          className={`font-paperlogy-semibold text-lg tabular-nums ${statusStyle.text}`}
+          className={`font-paperlogy-semibold text-[16px] ${statusStyle.text}`}
         >
           {race.date}
         </p>
-        <p
-          className={`${isHome ? "" : "mt-0.5"} font-anyvid text-[11px] text-gray-400`}
-        >
+        <p className="mt-0.5 font-anyvid text-[11px] text-gray-400">
           {race.day}
         </p>
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
           <span
-            className={`shrink-0 rounded-full font-anyvid text-white ${isHome ? "px-2 py-0 text-xs" : "px-2 py-0.5 text-[10px]"} ${statusStyle.badge}`}
+            className={`shrink-0 rounded-full px-2 py-0.5 font-anyvid text-xs text-white ${statusStyle.badge}`}
           >
             {statusStyle.label}
           </span>
@@ -69,9 +68,7 @@ export default function ListStyle({
             {race.title}
           </h3>
         </div>
-        <p
-          className={`${isHome ? "mt-1" : "mt-2"} flex min-w-0 items-center gap-1.5 font-anyvid text-xs text-gray-500`}
-        >
+        <p className="mt-2 flex min-w-0 items-center gap-1.5 font-anyvid text-xs text-gray-500">
           <MapPin
             className={`h-3.5 w-3.5 shrink-0 ${statusStyle.pin}`}
             aria-hidden="true"

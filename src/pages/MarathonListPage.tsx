@@ -1,99 +1,87 @@
-import { ChevronLeft, Search, Sparkles } from "lucide-react";
+import { Search, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
+import { fetchMarathons } from "../api/marathons";
 import ListStyle from "../components/list-style";
-import type { RaceStatus, RaceWithStatus } from "../data/races";
+import RaceDetailDialog from "../components/race-dialog";
+import { matchesRaceQuery, type RaceWithStatus } from "../lib/utils";
 
-const MARATHON_DATA_URL =
-  "https://websszoa.github.io/runzoa.com/data/marathons/marathons_2026.json";
+type ListFilter = "all" | "open" | "upcoming";
 
-type ApiMarathon = {
-  name: string;
-  event: { startDate: string };
-  registration: { startDate: string | null; status: string | null };
-  location: { region: string | null; venue: string | null };
+type Props = {
+  initialQuery: string;
+  initialStatus: ListFilter;
 };
 
-function getRaceStatus(marathon: ApiMarathon): RaceStatus {
-  if (marathon.registration.status === "접수중") return "open";
-  if (marathon.registration.status === "접수마감") return "closed";
-  if (
-    marathon.registration.startDate &&
-    new Date(`${marathon.registration.startDate}T00:00:00`) > new Date()
-  ) return "upcoming";
-  return "unknown";
-}
-
-function toRace(marathon: ApiMarathon): RaceWithStatus {
-  const eventDate = new Date(`${marathon.event.startDate}T00:00:00`);
-  return {
-    date: marathon.event.startDate.slice(5).replace("-", "."),
-    day: `${new Intl.DateTimeFormat("ko-KR", { weekday: "short" }).format(eventDate)}요일`,
-    title: marathon.name,
-    location: [marathon.location.region, marathon.location.venue].filter(Boolean).join(" · ") || "장소 미정",
-    status: getRaceStatus(marathon),
-  };
-}
-
-type Props = { initialQuery: string; onBack: () => void };
-
-export default function MarathonListPage({ initialQuery, onBack }: Props) {
+export default function MarathonListPage({
+  initialQuery,
+  initialStatus,
+}: Props) {
   const [query, setQuery] = useState(initialQuery);
-  const [filter, setFilter] = useState<"all" | RaceStatus>("all");
+  const [filter, setFilter] = useState<ListFilter>(initialStatus);
   const [races, setRaces] = useState<RaceWithStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [selectedRace, setSelectedRace] = useState<RaceWithStatus | null>(null);
+  const isOpenFilter = filter === "open";
+  const isUpcomingFilter = filter === "upcoming";
 
-  const loadRaces = async (signal?: AbortSignal) => {
+  // 필터를 바꾸면 주소창의 status 값도 함께 바꿔서, 접수중/접수예정 화면을
+  // 각각 별도의 주소로 복사·공유할 수 있게 합니다.
+  const applyFilter = (next: ListFilter) => {
+    setFilter(next);
+
+    const params = new URLSearchParams(window.location.search);
+    if (next === "all") {
+      params.delete("status");
+    } else {
+      params.set("status", next);
+    }
+    const search = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      `/marathons${search ? `?${search}` : ""}`,
+    );
+  };
+
+  const loadRaces = async () => {
     setLoading(true);
     setError(false);
     try {
-      const response = await fetch(MARATHON_DATA_URL, { signal });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as ApiMarathon[];
-      setRaces(data.map(toRace));
-    } catch (requestError) {
-      if (requestError instanceof DOMException && requestError.name === "AbortError") return;
+      setRaces(await fetchMarathons());
+    } catch {
       setError(true);
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
     void (async () => {
       try {
-        const response = await fetch(MARATHON_DATA_URL, {
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = (await response.json()) as ApiMarathon[];
-        setRaces(data.map(toRace));
-      } catch (requestError) {
-        if (
-          requestError instanceof DOMException &&
-          requestError.name === "AbortError"
-        ) return;
-        setError(true);
+        const data = await fetchMarathons();
+        if (active) setRaces(data);
+      } catch {
+        if (active) setError(true);
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (active) setLoading(false);
       }
     })();
-    return () => controller.abort();
+    return () => {
+      active = false;
+    };
   }, []);
-  const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
   const filteredRaces = races.filter((race) => {
+    // API 단계에서 개최일이 지난 대회는 이미 제외됩니다. "전체"에서는
+    // 아직 개최일이 남아 있다면 접수마감 상태도 함께 보여줍니다.
     const matchesStatus = filter === "all" || race.status === filter;
-    const matchesText =
-      !normalizedQuery ||
-      `${race.title} ${race.location}`
-        .toLocaleLowerCase("ko-KR")
-        .includes(normalizedQuery);
+    const matchesText = matchesRaceQuery(race, query);
     return matchesStatus && matchesText;
   });
 
   return (
-    <main className="relative isolate min-h-screen overflow-hidden bg-[#f4f7ff]">
+    <main className="relative isolate min-h-screen overflow-hidden bg-[#f4f7ff] py-4">
       <div
         className="pointer-events-none absolute inset-0 -z-10 overflow-hidden"
         aria-hidden="true"
@@ -102,17 +90,6 @@ export default function MarathonListPage({ initialQuery, onBack }: Props) {
         <span className="absolute -left-36 top-90 h-80 w-80 rounded-full bg-[#e8f4ff]" />
         <span className="absolute -right-32 bottom-20 h-72 w-72 rounded-full bg-[#f0eaff]" />
       </div>
-
-      <header className="flex h-14 items-center px-4">
-        <button
-          aria-label="메인으로 돌아가기"
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-blue-100 bg-white/80 text-gray-800 active:bg-blue-50"
-          onClick={onBack}
-          type="button"
-        >
-          <ChevronLeft className="h-6 w-6" />
-        </button>
-      </header>
 
       <section className="px-5 pb-12 pt-5">
         <div className="font-nanum-square-neo inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-white/80 px-3 py-1.5 text-xs text-gray-600">
@@ -129,26 +106,25 @@ export default function MarathonListPage({ initialQuery, onBack }: Props) {
         </p>
 
         <form
-          className="mt-7 flex items-center rounded-full border-2 border-blue-500 bg-white py-1 pl-5 pr-1.5 focus-within:ring-2 focus-within:ring-blue-500/15"
+          className={`mt-7 flex items-center rounded-full border-2 bg-white py-1 pl-5 pr-1.5 focus-within:ring-2 ${isOpenFilter ? "border-[#f1170f] focus-within:ring-[#f1170f]/15" : isUpcomingFilter ? "border-blue-500 focus-within:ring-blue-500/15" : "border-violet-500 focus-within:ring-violet-500/15"}`}
           onSubmit={(event) => event.preventDefault()}
           role="search"
         >
           <label className="flex min-w-0 flex-1 items-center gap-2">
             <Search
-              className="h-4 w-4 shrink-0 text-blue-500"
+              className={`h-4 w-4 shrink-0 ${isOpenFilter ? "text-[#f1170f]" : isUpcomingFilter ? "text-blue-500" : "text-violet-500"}`}
               aria-hidden="true"
             />
             <span className="sr-only">대회명, 지역, 장소 검색</span>
             <input
-              className="min-w-0 flex-1 bg-transparent font-anyvid text-sm text-gray-900 outline-none placeholder:text-gray-400"
+              className="min-w-0 flex-1 bg-transparent font-anyvid text-base text-gray-900 outline-none sm:text-sm"
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="대회명, 지역, 장소 검색"
               type="search"
               value={query}
             />
           </label>
           <button
-            className="whitespace-nowrap rounded-full bg-blue-600 px-5 py-2 font-anyvid text-sm text-white active:bg-blue-700"
+            className={`whitespace-nowrap rounded-full px-5 py-2 font-anyvid text-sm text-white transition-colors ${isOpenFilter ? "bg-[#f1170f] active:bg-[#d9341d]" : isUpcomingFilter ? "bg-blue-600 active:bg-blue-700" : "bg-violet-600 active:bg-violet-700"}`}
             type="submit"
           >
             검색
@@ -165,14 +141,13 @@ export default function MarathonListPage({ initialQuery, onBack }: Props) {
               { key: "all", label: "전체" },
               { key: "open", label: "접수중" },
               { key: "upcoming", label: "접수예정" },
-              { key: "closed", label: "접수마감" },
             ] as const
           ).map((item) => (
             <button
               aria-pressed={filter === item.key}
-              className={`rounded-full border px-4 py-2 font-anyvid text-xs transition-colors ${filter === item.key ? "border-blue-600 bg-blue-600 text-white" : "border-blue-100 bg-white/80 text-gray-500"}`}
+              className={`cursor-pointer rounded-full border px-4 py-2 font-anyvid text-xs transition-colors ${filter === item.key ? (item.key === "open" ? "border-[#f1170f] bg-[#f1170f] text-white" : item.key === "upcoming" ? "border-blue-600 bg-blue-600 text-white" : "border-violet-600 bg-violet-600 text-white") : "border-gray-200 bg-white/80 text-gray-500"}`}
               key={item.key}
-              onClick={() => setFilter(item.key)}
+              onClick={() => applyFilter(item.key)}
               type="button"
             >
               {item.label}
@@ -213,13 +188,16 @@ export default function MarathonListPage({ initialQuery, onBack }: Props) {
                 </button>
               </div>
             )}
-            {!loading && !error && filteredRaces.map((race) => (
-              <ListStyle
-                key={`${race.status}-${race.title}`}
-                race={race}
-                status={race.status}
-              />
-            ))}
+            {!loading &&
+              !error &&
+              filteredRaces.map((race) => (
+                <ListStyle
+                  key={`${race.status}-${race.title}`}
+                  race={race}
+                  status={race.status}
+                  onClick={() => setSelectedRace(race)}
+                />
+              ))}
             {!loading && !error && filteredRaces.length === 0 && (
               <div className="px-5 py-14 text-center">
                 <Search className="mx-auto h-6 w-6 text-blue-300" />
@@ -231,6 +209,12 @@ export default function MarathonListPage({ initialQuery, onBack }: Props) {
           </div>
         </div>
       </section>
+      <RaceDetailDialog
+        race={selectedRace}
+        onOpenChange={(open) => {
+          if (!open) setSelectedRace(null);
+        }}
+      />
     </main>
   );
 }
